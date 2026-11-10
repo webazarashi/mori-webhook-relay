@@ -1,0 +1,19 @@
+# 認証情報・個人データ（絶対にコミットしない）
+auth*.json
+.dev.vars
+.dev.vars.*
+.env
+.env.*
+secrets*.json
+state.local.json
+cloudflare.local.json
+out/
+inspect-output/
+
+# 依存・ビルド成果物
+node_modules/
+.cloudflare/
+.wrangler/
+
+# OS
+.DS_Store

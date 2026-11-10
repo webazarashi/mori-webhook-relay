@@ -1,0 +1,40 @@
+{
+  "name": "mori-webhook-relay",
+  "version": "0.1.0",
+  "description": "Mori のセッション要約が完成したら Grok Bot のルーティンを Webhook で起動する Cloudflare Worker（非公式）",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/webazarashi/mori-webhook-relay.git"
+  },
+  "homepage": "https://github.com/webazarashi/mori-webhook-relay#readme",
+  "bugs": {
+    "url": "https://github.com/webazarashi/mori-webhook-relay/issues"
+  },
+  "author": "Takuya Matsuzaki",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "login": "node scripts/login.mjs",
+    "inspect": "node scripts/inspect.mjs",
+    "dry-run": "node scripts/dry-run.mjs",
+    "bench": "node scripts/bench.mjs",
+    "test": "node --test test/*.test.js",
+    "test:integration": "node test/integration/scheduled.mjs",
+    "build": "cf build",
+    "deploy": "cf deploy"
+  },
+  "devDependencies": {
+    "cf": "1.0.0-beta.5",
+    "wrangler": "4.157.0"
+  },
+  "keywords": [
+    "mori",
+    "grok-bot",
+    "cloudflare-workers",
+    "webhook",
+    "mcp"
+  ]
+}
