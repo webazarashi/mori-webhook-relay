@@ -17,7 +17,7 @@ mori-webhook-relay は、LLM を使わない小さな Worker が 15 分ごとに
 
 ## 仕組み
 
-![mori-webhook-relay の仕組み: 15 分ごとに Worker が Mori MCP を確認し、要約が完成したときだけ Grok Bot のルーティンを Webhook で起動する](docs/images/overview.png)
+![mori-webhook-relay の仕組み: 15 分ごとに Worker が Mori MCP の直近 8 日分を確認し、要約が完成したときだけ要約と文字起こし全文を Grok Bot のルーティンに Webhook で送る](docs/images/overview.png)
 
 - 一覧の `preview`（要約の冒頭）が空のセッションは、要約がまだなので取得しません。要約ができた回に 1 回だけ送ります
 - 文字起こしは最大 7 日ほど遅れることがあるため、直近 8 日分を見直し続けます
