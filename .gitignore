@@ -2,6 +2,7 @@
 auth*.json
 .dev.vars
 .dev.vars.*
+!.dev.vars.example
 .env
 .env.*
 secrets*.json

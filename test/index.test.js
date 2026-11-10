@@ -16,15 +16,22 @@ test("管理用: トークンが違えば 401、正しければ /status は概�
     state: JSON.stringify({ sent: { a: "2026-11-05T00:00:00Z" }, pending: {}, crashGuard: {}, startFrom: "2026-11-01T00:00:00Z" }),
     oauth: JSON.stringify({ refresh_token: "secret-rt", access_token: "secret-at" }),
   });
-  const env = { MORI_KV: kv, ADMIN_TOKEN: "admin-token" };
+  const env = { MORI_KV: kv, ADMIN_TOKEN: "admin-token-0123456789" };
   assert.equal((await worker.fetch(req("GET", "/status", "wrong"), env)).status, 401);
   assert.equal((await worker.fetch(req("GET", "/status"), env)).status, 401);
-  const res = await worker.fetch(req("GET", "/status", "admin-token"), env);
+  const res = await worker.fetch(req("GET", "/status", "admin-token-0123456789"), env);
   assert.equal(res.status, 200);
   const text = await res.text();
   assert.ok(!text.includes("secret"), "トークンは返さない");
   const body = JSON.parse(text);
   assert.equal(body.sentCount, 1);
   assert.equal(body.startFrom, "2026-11-01T00:00:00Z");
-  assert.equal((await worker.fetch(req("GET", "/other", "admin-token"), env)).status, 404);
+  assert.equal((await worker.fetch(req("GET", "/other", "admin-token-0123456789"), env)).status, 404);
+});
+
+test("管理用: 短い ADMIN_TOKEN や .dev.vars.example の見本のままなら 404（未設定と同じ）", async () => {
+  for (const token of ["short", "<16 文字以上のランダムな文字列>"]) {
+    const res = await worker.fetch(req("GET", "/setup"), { MORI_KV: createMemoryKV(), ADMIN_TOKEN: token });
+    assert.equal(res.status, 404, token);
+  }
 });

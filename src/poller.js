@@ -28,7 +28,7 @@ const LOCK_TTL_SEC = 600;
 const DAY = 86400_000;
 const HOUR = 3600_000;
 
-export const RELOGIN_ACTION = "scripts/login.mjs で再ログインし、KV の oauth を更新してください";
+export const RELOGIN_ACTION = "Worker の /setup をブラウザで開いて Mori にログインし直してください（または scripts/login.mjs でログインし、KV の oauth を更新してください）";
 
 const errName = (e) => (e && e.name) || "Error";
 /** ログやエラー通知に出す文言（本文やトークンは含めない） */

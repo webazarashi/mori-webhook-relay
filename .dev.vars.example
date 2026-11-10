@@ -1,0 +1,5 @@
+# Worker の secret（Deploy to Cloudflare ボタンの画面で入力する値）
+# 手動でセットアップする場合は secrets.json に同じ名前で書いて `npx cf deploy --secrets-file secrets.json`
+GROK_WEBHOOK_URL=https://api2.cursor.sh/automations/webhook/<routine-id>
+GROK_WEBHOOK_KEY=crsr_<ルーティンの key>
+ADMIN_TOKEN=<16 文字以上のランダムな文字列>

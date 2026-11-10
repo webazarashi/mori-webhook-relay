@@ -23,8 +23,10 @@
     "bench": "node scripts/bench.mjs",
     "test": "node --test test/*.test.js",
     "test:integration": "node test/integration/scheduled.mjs",
-    "build": "cf build",
-    "deploy": "cf deploy"
+    "build:cf": "cf build",
+    "deploy:cf": "cf deploy --secrets-file secrets.json",
+    "check:wrangler": "wrangler deploy --dry-run --outdir .wrangler/dry-run",
+    "deploy": "wrangler deploy"
   },
   "devDependencies": {
     "cf": "1.0.0-beta.5",
@@ -36,5 +38,21 @@
     "cloudflare-workers",
     "webhook",
     "mcp"
-  ]
+  ],
+  "cloudflare": {
+    "bindings": {
+      "MORI_KV": {
+        "description": "送信済みの記録と Mori のログイン情報を入れる KV。新しく作られるので、名前はそのままでかまいません。"
+      },
+      "GROK_WEBHOOK_URL": {
+        "description": "Grok Bot のルーティンを開き、**Webhook** 欄の **POST to** に出ている URL（`https://api2.cursor.sh/automations/webhook/...`）。"
+      },
+      "GROK_WEBHOOK_KEY": {
+        "description": "同じ **Webhook** 欄の **key**（`crsr_...`）。`Authorization: Bearer` は付けずに値だけ入れてください。"
+      },
+      "ADMIN_TOKEN": {
+        "description": "デプロイ後に `/setup` で Mori にログインするときや、`/status`・`/run` で使う合言葉。16 文字以上のランダムな文字列にしてください（例: `openssl rand -base64 24`）。"
+      }
+    }
+  }
 }

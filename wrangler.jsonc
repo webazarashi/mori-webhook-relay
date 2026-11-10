@@ -1,0 +1,15 @@
+// Deploy to Cloudflare ボタン（と `npm run deploy`）用の設定。
+// 手動でのセットアップ（cf CLI）は cloudflare.config.ts を使う。両方の内容は test/config-sync.test.js でそろえている。
+// - KV は id を書かない: デプロイ時に新しく作られて、自動で結び付けられる
+// - secret（GROK_WEBHOOK_URL / GROK_WEBHOOK_KEY / ADMIN_TOKEN）は .dev.vars.example に並べてあり、ボタンの画面で入力する
+// - 設定の既定値は src/config.js にある。変えたいものだけ "vars" に書く（一覧は README の「設定一覧」）
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "mori-webhook-relay",
+  "main": "./src/index.js",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": true,
+  "observability": { "enabled": true },
+  "triggers": { "crons": ["*/15 * * * *"] },
+  "kv_namespaces": [{ "binding": "MORI_KV" }]
+}

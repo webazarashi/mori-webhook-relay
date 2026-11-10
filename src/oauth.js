@@ -164,7 +164,7 @@ export class TokenManager {
 
   async load() {
     const raw = await this.kv.get(this.key);
-    if (!raw) throw new AuthError(`KV に ${this.key} がありません。scripts/login.mjs でログインしてください`);
+    if (!raw) throw new AuthError(`KV に ${this.key} がありません。Worker の /setup（または scripts/login.mjs）で Mori にログインしてください`);
     let rec;
     try {
       rec = JSON.parse(raw);

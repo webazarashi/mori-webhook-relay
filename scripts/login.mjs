@@ -6,10 +6,10 @@
 //
 // オプション: --out <file> / --mcp-url <url> / --port 8976 / --no-open
 import { spawn } from "node:child_process";
-import { createHash, randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { createServer } from "node:http";
-import { DEFAULT_MCP_URL, DEFAULT_SCOPE, assertTrustedTokenEndpoint, discoverOAuthMetadata, postTokenRequest } from "../src/oauth.js";
+import { buildAuthorizeUrl, createPkce, exchangeCode, randomToken, readCallbackCode, registerClient } from "../src/login-flow.js";
+import { DEFAULT_MCP_URL, discoverOAuthMetadata } from "../src/oauth.js";
 import { parseArgs } from "./lib/args.mjs";
 import { writePrivateFile } from "./lib/file-kv.mjs";
 
@@ -22,8 +22,6 @@ const args = parseArgs(process.argv.slice(2), {
 const PORT = Number(args.port);
 const REDIRECT_URI = `http://localhost:${PORT}/callback`;
 const LOGIN_TIMEOUT_MS = 5 * 60 * 1000;
-
-const b64url = (buf) => Buffer.from(buf).toString("base64url");
 
 function openBrowser(url) {
   const [cmd, cmdArgs] =
@@ -66,28 +64,17 @@ function waitForCallback(expectedState, meta) {
         finish(new Error("state が一致しません（別のログイン画面の応答の可能性があります）"));
         return;
       }
-      const iss = p.get("iss");
-      if (iss && iss !== meta.issuer) {
-        res.writeHead(400, { "Content-Type": "text/html; charset=utf-8" }).end(page("ログイン失敗", "発行元 (iss) が一致しません。"));
-        finish(new Error(`iss が一致しません: ${iss}`));
+      let result;
+      try {
+        result = readCallbackCode(p, { issuer: meta.issuer, issParameterSupported: meta.iss_parameter_supported });
+      } catch (e) {
+        res.writeHead(400, { "Content-Type": "text/html; charset=utf-8" }).end(page("ログイン失敗", "ターミナルのメッセージを確認してください。"));
+        finish(e);
         return;
       }
-      if (!iss && meta.iss_parameter_supported) {
-        console.warn("⚠️  サーバーは iss パラメーター対応を公開していますが、応答に iss がありませんでした");
-      }
-      if (p.get("error")) {
-        res.writeHead(400, { "Content-Type": "text/html; charset=utf-8" }).end(page("ログイン失敗", "認可が拒否されました。"));
-        finish(new Error(`認可エラー: ${p.get("error")} ${p.get("error_description") || ""}`.trim()));
-        return;
-      }
-      const code = p.get("code");
-      if (!code) {
-        res.writeHead(400).end();
-        finish(new Error("認可コードがありません"));
-        return;
-      }
+      if (result.missingIss) console.warn("⚠️  サーバーは iss パラメーター対応を公開していますが、応答に iss がありませんでした");
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }).end(page("ログインしました", "このタブは閉じてかまいません。ターミナルに戻ってください。"));
-      finish(null, code);
+      finish(null, result.code);
     });
     const timer = setTimeout(() => {
       server.close();
@@ -107,76 +94,18 @@ async function main() {
   console.log(`🔎 ${args.mcpUrl} の OAuth 設定を確認しています…`);
   const meta = await discoverOAuthMetadata({ mcpUrl: args.mcpUrl });
   if (!meta.discovered) console.warn("⚠️  メタデータが取得できなかったため、既定の URL を使います");
-  assertTrustedTokenEndpoint(meta.token_endpoint, meta.resource);
-
-  // 動的クライアント登録
-  const scope = DEFAULT_SCOPE;
-  const regRes = await fetch(meta.registration_endpoint, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({
-      client_name: "mori-webhook-relay",
-      redirect_uris: [REDIRECT_URI],
-      token_endpoint_auth_method: "none",
-      grant_types: ["authorization_code", "refresh_token"],
-      response_types: ["code"],
-      scope,
-    }),
-  });
-  if (!regRes.ok) throw new Error(`クライアント登録に失敗しました (HTTP ${regRes.status}): ${(await regRes.text()).slice(0, 200)}`);
-  const reg = await regRes.json();
-  if (!reg.client_id) throw new Error("クライアント登録の応答に client_id がありません");
-
-  // PKCE と state
-  const verifier = b64url(randomBytes(32));
-  const challenge = b64url(createHash("sha256").update(verifier).digest());
-  const state = b64url(randomBytes(16));
-
-  const authUrl = new URL(meta.authorization_endpoint);
-  authUrl.search = new URLSearchParams({
-    response_type: "code",
-    client_id: reg.client_id,
-    redirect_uri: REDIRECT_URI,
-    code_challenge: challenge,
-    code_challenge_method: "S256",
-    state,
-    scope,
-    resource: meta.resource,
-  }).toString();
+  const client = await registerClient({ meta, redirectUri: REDIRECT_URI });
+  const { verifier, challenge } = await createPkce();
+  const state = randomToken(16);
+  const authUrl = buildAuthorizeUrl({ meta, client, redirectUri: REDIRECT_URI, challenge, state });
 
   const callback = waitForCallback(state, meta);
   console.log("\n🌐 ブラウザで Mori にログインしてください。開かない場合は次の URL を開いてください:\n");
-  console.log(`   ${authUrl.toString()}\n`);
-  if (args.open) openBrowser(authUrl.toString());
+  console.log(`   ${authUrl}\n`);
+  if (args.open) openBrowser(authUrl);
 
   const code = await callback;
-
-  const record = {
-    client_id: reg.client_id,
-    client_secret: reg.client_secret ?? null,
-    token_endpoint_auth_method: reg.token_endpoint_auth_method || "none",
-    token_endpoint: meta.token_endpoint,
-    resource: meta.resource,
-    scope,
-  };
-  const tok = await postTokenRequest(fetch, record, {
-    grant_type: "authorization_code",
-    code,
-    redirect_uri: REDIRECT_URI,
-    code_verifier: verifier,
-    resource: meta.resource,
-  });
-  if (!tok.refresh_token) throw new Error("リフレッシュトークンが返りませんでした（定期実行に必要です）");
-
-  const now = Date.now();
-  const out = {
-    ...record,
-    scope: typeof tok.scope === "string" ? tok.scope : scope,
-    access_token: tok.access_token,
-    access_expires_at: now + (Number(tok.expires_in) > 0 ? Number(tok.expires_in) : 3600) * 1000,
-    refresh_token: tok.refresh_token,
-    updated_at: new Date(now).toISOString(),
-  };
+  const out = await exchangeCode({ client, code, verifier, redirectUri: REDIRECT_URI });
   await writePrivateFile(args.out, `${JSON.stringify(out, null, 2)}\n`);
   console.log(`✅ ログインしました。${args.out} に保存しました（権限 600）。`);
   console.log("   このファイルはリポジトリにコミットしないでください（.gitignore 済み）。");

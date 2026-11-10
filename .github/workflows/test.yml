@@ -15,16 +15,20 @@ jobs:
       matrix:
         node: [22, 24]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ matrix.node }}
           cache: npm
       - run: npm ci
       - name: 単体テスト
         run: npm test
-      - name: バンドルの確認（Cloudflare アカウント不要）
-        run: npx cf build
+      - name: バンドルの確認・cf CLI（Cloudflare アカウント不要）
+        run: npm run build:cf
+      - name: バンドルの確認・wrangler（Deploy ボタンと同じ設定）
+        run: npm run check:wrangler
+        env:
+          WRANGLER_SEND_METRICS: "false"
       - name: Workers ランタイムでの結合テスト
         run: npm run test:integration
         env:

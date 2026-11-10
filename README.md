@@ -4,6 +4,8 @@
 
 > **本ツールは franky株式会社とは無関係の非公式ツールです。** Mori の仕様変更により動かなくなる可能性があります。
 
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/webazarashi/mori-webhook-relay)
+
 ## 何がうれしいか
 
 Grok Bot の cron ルーティンで Mori MCP を定期的に呼ぶと、新着がない回でも LLM のトークンを消費します。
@@ -15,20 +17,7 @@ mori-webhook-relay は、LLM を使わない小さな Worker が 15 分ごとに
 
 ## 仕組み
 
-```mermaid
-flowchart TD
-    Cron["Cloudflare Worker（15 分ごと・LLM なし）"]
-    Mori["Mori MCP（読み取り専用）"]
-    Check{"要約が新しく完成した<br/>セッションがあるか"}
-    Idle["何もしない（Bot は起動しない）"]
-    Payload["要約・文字起こし全文・<br/>セッションの全フィールドをまとめる"]
-    Grok["Grok Bot ルーティン（Webhook トリガー）<br/>MCP を呼ばずに処理する"]
-
-    Cron -->|"一覧・要約・文字起こしを取得"| Mori
-    Mori --> Check
-    Check -->|"いいえ"| Idle
-    Check -->|"はい"| Payload --> Grok
-```
+![mori-webhook-relay の仕組み: 15 分ごとに Worker が Mori MCP を確認し、要約が完成したときだけ Grok Bot のルーティンを Webhook で起動する](docs/images/overview.png)
 
 - 一覧の `preview`（要約の冒頭）が空のセッションは、要約がまだなので取得しません。要約ができた回に 1 回だけ送ります
 - 文字起こしは最大 7 日ほど遅れることがあるため、直近 8 日分を見直し続けます
@@ -37,7 +26,7 @@ flowchart TD
 ## プライバシー
 
 - 会話データは **Mori → 利用者自身の Cloudflare Worker → 利用者自身の Grok Bot** にしか流れません。作者を含む第三者には送られません
-- 各利用者が自分の Cloudflare アカウントにデプロイし、自分で Mori に OAuth ログインします。共有のサーバーや client_id はありません
+- 各利用者が自分の Cloudflare アカウントにデプロイし、自分で Mori に OAuth ログインします。共有のサーバーや client_id はありません。Mori のトークンは、自分の Worker の KV にだけ保存されます
 - Worker はトークン・要約・文字起こしの本文をログに出しません
 - ペイロードには、Mori が返すセッションの全フィールド（位置情報 `location` を含む）が入ります
 
@@ -45,7 +34,8 @@ flowchart TD
 
 - Mori のアカウント
 - Cloudflare のアカウント（無料プランで動きます）
-- Node.js 22.18 以上
+- Deploy ボタンを使う場合: GitHub か GitLab のアカウント（このリポジトリが自分のアカウントに複製されます）
+- 手動でセットアップする場合: Node.js 22.18 以上
 - Grok Bot（ルーティンを Webhook トリガーにできること）
 
 ## 公開・利用の前に
@@ -54,7 +44,34 @@ Mori の利用規約に、MCP 経由の自動アクセスを禁止する条項�
 
 ## セットアップ
 
-### 1. インストール
+方法は 2 つあります。
+
+- **A. Deploy to Cloudflare ボタン**（おすすめ）: ブラウザだけで済みます。Node.js も不要です
+- **B. 手動（cf CLI）**: 手元で Mori の応答の形を調べたり（`inspect`）、送る内容を事前に確かめたり（`dry-run`）したい場合に
+
+どちらの場合も、先に [Grok Bot の設定](#grok-bot-の設定) を済ませて、Webhook の URL と key を用意しておきます。
+
+### A. Deploy to Cloudflare ボタン
+
+1. 下のボタンを押します
+
+   [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/webazarashi/mori-webhook-relay)
+
+2. Cloudflare にログインし、GitHub か GitLab と連携します。このリポジトリが自分のアカウントに複製され、そこから Cloudflare が自動でビルド・デプロイします。KV も自動で作られます
+3. secret を 3 つ入力して、デプロイします（入力欄の説明にも同じことが書いてあります）
+   - `GROK_WEBHOOK_URL`: ルーティンの **Webhook** 欄の **POST to**
+   - `GROK_WEBHOOK_KEY`: 同じ欄の **key**（`crsr_...`。`Authorization: Bearer` は付けない）
+   - `ADMIN_TOKEN`: 自分で決める 16 文字以上のランダムな文字列（例: `openssl rand -base64 24` の出力）。次の手順で使うので控えておきます
+4. デプロイが済んだら、`https://mori-webhook-relay.<あなたのサブドメイン>.workers.dev/setup` をブラウザで開き、`ADMIN_TOKEN` を入れて Mori にログインします
+5. 「Mori にログインしました」と出たら完了です。15 分以内の次の実行から Mori を確認します。初回の実行より前に始まったセッションは送りません
+6. 要約が Grok Bot に届くのを確かめたら、古い cron ルーティンを止めます
+
+- 複製されたリポジトリに push すると、自動で再デプロイされます。設定を変えたいときは、複製先の `wrangler.jsonc` に `"vars"` を足して push します（[設定一覧](#設定一覧)）
+- このリポジトリの更新は、複製先に自動では入りません
+
+### B. 手動（cf CLI）
+
+#### 1. インストール
 
 ```sh
 git clone https://github.com/webazarashi/mori-webhook-relay.git
@@ -62,7 +79,7 @@ cd mori-webhook-relay
 npm install
 ```
 
-### 2. ローカル用にログインして、応答の形を確認する
+#### 2. ローカル用にログインして、応答の形を確認する
 
 ```sh
 npm run login       # ブラウザで Mori にログイン → auth.local.json（権限 600）
@@ -73,7 +90,7 @@ npm run dry-run -- --since 3d   # 送らずに、送るはずのペイロード�
 - `out/` と `inspect-output/raw-*.json` には本物の会話が入ります。共有・コミットしないでください（`.gitignore` 済み）
 - dry-run は送信済みの記録を付けないので、何度でも試せます
 
-### 3. Cloudflare の準備
+#### 3. Cloudflare の準備
 
 ```sh
 npx cf login
@@ -82,7 +99,9 @@ npx cf kv namespaces create --title mori-webhook-relay
 
 表示された KV の ID を `cloudflare.config.ts` の `MORI_KV_NAMESPACE_ID` に書きます（または、デプロイ時に環境変数 `MORI_KV_NAMESPACE_ID` で渡します）。
 
-### 4. Worker 用にもう一度ログインして、KV に入れる
+#### 4. Worker 用にもう一度ログインして、KV に入れる
+
+デプロイ後にブラウザで `/setup` を開いてログインすれば（A の手順 4 と同じ）、この手順は省けます。その場合は `ADMIN_TOKEN` が必要です。
 
 > ⚠️ **ローカル用と Worker 用の認証情報は分けてください。** Mori はリフレッシュのたびにリフレッシュトークンを新しくします（ローテーション）。同じ認証情報をローカルと Worker で使い回すと、片方が更新した時点でもう片方が使えなくなります。
 
@@ -92,11 +111,9 @@ npx cf kv keys put oauth --namespace-id <KV の ID> --file auth.worker.json
 rm auth.worker.json
 ```
 
-### 5. secret を用意してデプロイする
+#### 5. secret を用意してデプロイする
 
-Grok Bot 側の準備（[Grok Bot の設定](#grok-bot-の設定)）を先に済ませ、Webhook の URL と key を用意します。
-
-`secrets.json`（`.gitignore` 済み）を作ります。
+`secrets.json`（`.gitignore` 済み）を作ります。名前の一覧は `.dev.vars.example` にもあります。
 
 ```json
 {
@@ -106,7 +123,7 @@ Grok Bot 側の準備（[Grok Bot の設定](#grok-bot-の設定)）を先に済
 }
 ```
 
-- `ADMIN_TOKEN` は任意です。入れると、動作確認用の `/status` と `/run` が使えます
+- `ADMIN_TOKEN` は任意です。入れると、ブラウザでのログイン（`/setup`）と、動作確認用の `/status`・`/run` が使えます。16 文字未満のものは無効になります
 - 過去のセッションを送りたくない場合は、そのままで大丈夫です（初回の実行時刻より前に始まったセッションは送りません）。特定の日時から送りたい場合は、`cloudflare.config.ts` の `OVERRIDES` で `START_FROM` を指定します
 
 ```sh
@@ -115,7 +132,7 @@ npx cf deploy --secrets-file secrets.json
 
 デプロイが済んだら、`secrets.json` は削除するか、安全な場所に移してください。
 
-### 6. 動作確認
+#### 6. 動作確認
 
 ```sh
 curl -X POST -H "Authorization: Bearer <ADMIN_TOKEN>" https://mori-webhook-relay.<あなたのサブドメイン>.workers.dev/run
@@ -124,14 +141,14 @@ curl -H "Authorization: Bearer <ADMIN_TOKEN>" https://mori-webhook-relay.<あな
 
 `/run` はその場で 1 回実行して、件数などを返します（本文は返しません）。新しい要約がない場合、Webhook は呼ばれません。
 
-### 7. 古いルーティンを止める
+#### 7. 古いルーティンを止める
 
 Grok Bot で Mori MCP を cron で呼んでいた古いルーティンを止めます。動いたままだとトークンの消費は減りません。
 
 ## Grok Bot の設定
 
 1. Bot とのチャットで「このルーティンのトリガーを Webhook に変えて」と頼む（または新しいルーティンを作る）
-2. ルーティンを開き、**Webhook** 欄の **POST to**（URL）と **key** をコピーして、`secrets.json` に入れる
+2. ルーティンを開き、**Webhook** 欄の **POST to**（URL）と **key** をコピーする（Deploy ボタンの画面か `secrets.json` に入れる）
 3. ルーティンの指示を書き換える（テンプレートは [docs/grokbot-routine.md](docs/grokbot-routine.md)）
 4. 動作確認ができたら、古い cron ルーティンを止める
 
@@ -170,13 +187,16 @@ Grok Bot で Mori MCP を cron で呼んでいた古いルーティンを止め�
 
 ## 設定一覧
 
-`cloudflare.config.ts` の `OVERRIDES`（無料プランの既定値から変えたいものだけ書く）か、`PLAN = "paid"` で変えます。
+既定値は `src/config.js` にあります。変えたいものだけ、次の場所に書きます。
+
+- Deploy ボタンで入れた場合: 複製先の `wrangler.jsonc` に `"vars": { "START_FROM": "..." }` のように足して push（Cloudflare のダッシュボードで変えた値は、次のデプロイで消えます）
+- 手動の場合: `cloudflare.config.ts` の `OVERRIDES`。有料プランなら `PLAN = "paid"`
 
 | 名前 | 種類 | 既定値（無料プラン） | 有料プランのおすすめ | 説明 |
 |---|---|---|---|---|
 | `GROK_WEBHOOK_URL` | secret | — | | ルーティンの Webhook URL |
 | `GROK_WEBHOOK_KEY` | secret | — | | `crsr_...` |
-| `ADMIN_TOKEN` | secret（任意） | なし | | `/status` と `/run` 用。未設定なら 404 |
+| `ADMIN_TOKEN` | secret（任意） | なし | | `/setup`・`/status`・`/run` 用。未設定（または 16 文字未満）なら 404 |
 | `MCP_URL` | var | `https://mcp.mori.to` | | |
 | `WINDOW_DAYS` | var | 8 | | 見直す日数（最大遅延 7 日＋1 日） |
 | `MAX_SESSIONS_PER_RUN` | var | 5 | 20 | 1 回に送るセッション数の上限 |
@@ -196,7 +216,7 @@ Grok Bot で Mori MCP を cron で呼んでいた古いルーティンを止め�
 | `SENT_RETENTION_DAYS` | var | 14 | | 送信済みの記録を残す日数 |
 
 - cron は `*/15 * * * *`（15 分ごと）です。**10〜15 分を推奨**します。5 分未満にすると、KV の書き込み（無料プランは 1,000 回/日）の上限に近づくのでおすすめしません
-- 有料プラン（Workers Paid、$5/月〜）では cron の CPU 上限が 30 秒になり、サブリクエストも大幅に増えます。`PLAN = "paid"`（または `MORI_RELAY_PLAN=paid npx cf deploy …`）にすると、上の「有料プランのおすすめ」の値になります
+- 有料プラン（Workers Paid、$5/月〜）では cron の CPU 上限が 30 秒になり、サブリクエストも大幅に増えます。手動の場合は `PLAN = "paid"`（または `MORI_RELAY_PLAN=paid npx cf deploy …`）にすると、上の「有料プランのおすすめ」の値になります。Deploy ボタンの場合は、その値を `wrangler.jsonc` の `"vars"` に書きます
 
 ## 無料枠の目安
 
@@ -230,7 +250,9 @@ CPU 時間の目安（`npm run bench` の結果の一例。合成データで、
 
 ### 認証が切れた（`auth_expired` の通知が来た）
 
-リフレッシュトークンは、最後に更新されてから 30 日で失効します（Worker が動いていれば自動で延長されます）。Worker が長く止まっていた場合などに起きます。セットアップの手順 4 をやり直してください。
+リフレッシュトークンは、最後に更新されてから 30 日で失効します（Worker が動いていれば自動で延長されます）。Worker が長く止まっていた場合などに起きます。
+
+`https://mori-webhook-relay.<あなたのサブドメイン>.workers.dev/setup` を開いて、ログインし直してください。`ADMIN_TOKEN` を設定していない場合は、手元でログインして KV に入れ直します。
 
 ```sh
 node scripts/login.mjs --out auth.worker.json
@@ -260,10 +282,12 @@ rm auth.worker.json
 ```sh
 npm test                    # 単体テスト（node:test）
 npm run test:integration    # Workers ランタイムでの結合テスト（モックの Mori と Webhook を使う。アカウント不要）
-npm run build               # バンドルの確認（cf build）
+npm run build:cf            # バンドルの確認（cf build）
+npm run check:wrangler      # バンドルの確認（wrangler。Deploy ボタンと同じ設定）
 npm run bench               # CPU 時間の目安
 ```
 
+- Cloudflare の設定は 2 つあります。`cloudflare.config.ts`（cf CLI 用）と `wrangler.jsonc`（Deploy ボタンと `npm run deploy` 用）です。名前・cron・KV などがずれていないかは `test/config-sync.test.js` で確かめています
 - テストのフィクスチャは架空の内容で作っています。本物の会話データはリポジトリに入れないでください
 - 実行時の依存パッケージはありません（`fetch` だけで MCP と OAuth を実装しています）。開発用の依存は `cf` と `wrangler` だけです
 
